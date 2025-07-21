@@ -1,0 +1,31 @@
+# CSV-Dateien ignorieren
+*.csv
+
+# Temporäre Python-Dateien ignorieren
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter-Notebook-Checkpoints ignorieren
+*.ipynb_checkpoints/
+
+# Virtuelle Umgebungen ignorieren (verschiedene Varianten)
+venv/
+.env
+env/
+.jobs/
+jobs/
+analysis/
+
+# Inhalt von Standard-Venv-Struktur ignorieren
+Include/
+Lib/
+Scripts/
+share/
+pyvenv.cfg
+
+# Ausführbare Dateien ignorieren
+*.exe
+
+# Logdateien ignorieren
+*.log
