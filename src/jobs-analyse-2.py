@@ -1,4 +1,5 @@
 import pandas as pd
+from utils import clean_text
 
 # Parámetros configurables
 LEVEL_KEYWORDS = ["praktikum", "intern", "junior", "senior"]
@@ -31,17 +32,17 @@ def classify_job_titles(df):
 
     df["contract_type"] = df["location"].apply(classify_contract)
 
-    # Filtro final recomendado
+    # Filtro final recomendado como flag
     df["is_relevant"] = (~df["is_excluded"]) & (df["level"] != "unspecified") & (df["has_tech_keyword"])
 
-    # Seleccionar columnas relevantes
-    columns = ["title", "company", "location", "contract_type", "level", "has_tech_keyword", "is_excluded", "is_relevant", "link"]
-    return df[columns]
+    return df
 
+# Leer y limpiar
 df = pd.read_csv("jobs_scraped.csv")
-filtered_df = classify_job_titles(df)
-filtered_df.to_csv("jobs_filtered.csv", index=False)
+for col in ["title", "company", "location", "link"]:
+    df[col] = df[col].astype(str).apply(clean_text)
 
-relevant_df = filtered_df[filtered_df["is_relevant"]]
-relevant_df.head()
-relevant_df.to_csv("jobs_relevant_only.csv", index=False)
+# Clasificar y exportar con todas las filas conservadas
+classified_df = classify_job_titles(df)
+classified_df.to_csv("output_2.csv", index=False, encoding="utf-8")
+print("✅ Guardado: output_2.csv con todas las ofertas y campos de filtro.")

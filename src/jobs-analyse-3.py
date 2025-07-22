@@ -6,6 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+from utils import clean_text
 
 # Configuración del navegador
 def setup_driver():
@@ -28,13 +29,12 @@ def extract_job_text(driver, url):
             except:
                 return ""
 
-        description = safe_extract(By.CSS_SELECTOR, 'div[data-cy="vacancy-description"]')
-
-        publication_date = safe_extract(By.CSS_SELECTOR, "li[data-cy='info-publication'] span.white-space_nowrap")
-        workload = safe_extract(By.CSS_SELECTOR, "li[data-cy='info-workload'] span.white-space_nowrap")
-        contract_type_detail = safe_extract(By.CSS_SELECTOR, "li[data-cy='info-contract'] span.white-space_nowrap")
-        language = safe_extract(By.CSS_SELECTOR, "li[data-cy='info-language'] span:not([class])")
-        place_of_work = safe_extract(By.CSS_SELECTOR, "li[data-cy='info-workplace'] span:not([class])")
+        description = clean_text(safe_extract(By.CSS_SELECTOR, 'div[data-cy="vacancy-description"]'))
+        publication_date = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-publication'] span.white-space_nowrap"))
+        workload = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-workload'] span.white-space_nowrap"))
+        contract_type_detail = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-contract'] span.white-space_nowrap"))
+        language = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-language'] span:not([class])"))
+        place_of_work = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-workplace'] span:not([class])"))
 
         return {
             "description": description,
@@ -55,6 +55,11 @@ def scrape_job_details(input_csv, output_csv, debug=False):
     df = df.dropna(subset=["link"])
     df["link"] = df["link"].str.strip()
     df["link"] = df["link"].str.replace("https://www.jobs.chhttps://www.jobs.ch", "https://www.jobs.ch")
+
+    # Limpieza de columnas de texto
+    text_cols = ["title", "company", "location", "contract_type", "level", "link"]
+    for col in text_cols:
+        df[col] = df[col].astype(str).apply(clean_text)
 
     if debug:
         df = df.head(1)
@@ -100,7 +105,7 @@ def scrape_job_details(input_csv, output_csv, debug=False):
                 "location": row["location"],
                 "contract_type": row.get("contract_type", ""),
                 "level": row.get("level", ""),
-                "url": url,
+                "link": url,
                 "publication_date": pub_date,
                 "workload": workload,
                 "contract_type_detail": contract_type_detail,
@@ -119,4 +124,4 @@ def scrape_job_details(input_csv, output_csv, debug=False):
 
 # Ejecutar directamente
 if __name__ == "__main__":
-    scrape_job_details("jobs_relevant_only.csv", "results.csv", debug=False)
+    scrape_job_details("output_2.csv", "results.csv", debug=False)

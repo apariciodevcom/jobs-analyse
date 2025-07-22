@@ -1,31 +1,37 @@
-# CSV-Dateien ignorieren
+# === Generierte Daten und Dateien ===
+data/
+logs/
 *.csv
+*.log
 
-# Temporäre Python-Dateien ignorieren
+# === Temporäre Python-Dateien ===
 __pycache__/
 *.pyc
 *.pyo
 
-# Jupyter-Notebook-Checkpoints ignorieren
+# === Jupyter-Notebook-Checkpoints ===
 *.ipynb_checkpoints/
 
-# Virtuelle Umgebungen ignorieren (verschiedene Varianten)
+# === Virtuelle Umgebungen (häufige Namen) ===
 venv/
-.env
 env/
-.jobs/
-jobs/
+.env
+
+# === Binärdateien und ausführbare Dateien ===
+*.exe
+bin/
+
+# === Lokale Entwicklungsskripte (nicht ins Repo) ===
+test/
 analysis/
 
-# Inhalt von Standard-Venv-Struktur ignorieren
+# === Python-Standardstruktur (versehentlich kopiert) ===
 Include/
 Lib/
 Scripts/
 share/
 pyvenv.cfg
 
-# Ausführbare Dateien ignorieren
-*.exe
-
-# Logdateien ignorieren
-*.log
+# === Systemdateien (Betriebssysteme) ===
+.DS_Store
+Thumbs.db

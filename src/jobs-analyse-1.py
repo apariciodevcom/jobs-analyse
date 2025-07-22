@@ -2,6 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from utils import clean_text
 import pandas as pd
 import time
 
@@ -14,7 +15,7 @@ def setup_driver():
     return webdriver.Chrome(service=service, options=options)
 
 def get_jobs_basic(driver, max_pages=100):
-    base_url = "https://www.jobs.ch/en/vacancies/?page={page}&region=18&term="
+    base_url = "https://www.jobs.ch/en/vacancies/?page={page}&region=7&term="
     results = []
 
     for page in range(1, max_pages + 1):
@@ -62,7 +63,9 @@ if __name__ == "__main__":
     try:
         jobs = get_jobs_basic(driver, max_pages=100)
         df = pd.DataFrame(jobs)
-        df.to_csv("jobs_scraped_.csv", index=False, encoding="utf-8")
-        print(f"\n✅ Guardado: {len(df)} ofertas en 'jobs_scraped.csv'")
+        for col in ["title", "company", "location", "link"]:
+            df[col] = df[col].apply(clean_text)
+        df.to_csv("jobs_scraped.csv", index=False, encoding="utf-8")
+        print(f"\n Guardado: {len(df)} ofertas en 'jobs_scraped.csv'")
     finally:
         driver.quit()
