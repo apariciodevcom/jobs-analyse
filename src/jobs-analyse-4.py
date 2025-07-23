@@ -1,121 +1,72 @@
 import os
 import sys
-import time
+import json
 import pandas as pd
-import spacy
-from transformers import pipeline
+from math import ceil
 
 # --------------------------
 # Pfadkonfiguration
 # --------------------------
 BASIS_VERZEICHNIS = os.path.dirname(os.path.abspath(__file__))
-TEST_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "test"))
 DATEN_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "data"))
+ZIEL_VERZEICHNIS = os.path.join(DATEN_VERZEICHNIS, "grupos_fase4")
+os.makedirs(ZIEL_VERZEICHNIS, exist_ok=True)
+
 EINGABEDATEI = os.path.join(DATEN_VERZEICHNIS, "results.csv")
-AUSGABEDATEI = os.path.join(DATEN_VERZEICHNIS, "analyzed_offers_optimized.csv")
-
-sys.path.append(TEST_VERZEICHNIS)
-from utils import clean_text
+AUSGABEDATEI = os.path.join(ZIEL_VERZEICHNIS, "results_con_grupo.csv")
+STATUS_DATEI = os.path.join(ZIEL_VERZEICHNIS, "grupo_status.json")
 
 # --------------------------
-# NLP-Modelle laden
+# Logger
 # --------------------------
-print("🔄 Lade NLP-Modelle...")
-classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+sys.path.append(os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "test")))
+from utils import get_logger
 
-try:
-    nlp = spacy.load("xx_ent_wiki_sm")
-except:
-    from spacy.cli import download
-    download("xx_ent_wiki_sm")
-    nlp = spacy.load("xx_ent_wiki_sm")
-
-ROLLEN_LABELS = ["Data Scientist", "Data Analyst", "Machine Learning Engineer", "Software Engineer",
-                 "Business Analyst", "DevOps Engineer", "BI Analyst", "Data Engineer"]
-STUFEN_LABELS = ["Intern", "Junior", "Senior", "Lead", "Unspecified"]
-BRANCHEN_LABELS = ["Finance", "Healthcare", "Retail", "Telecommunications", "IT", "Education", "Government"]
-TECH_STICHWÖRTER = ["python", "sql", "excel", "r", "tableau", "power bi", "cloud", "aws", "azure", "linux",
-                    "pytorch", "tensorflow", "spark", "hadoop", "snowflake", "looker"]
+logger = get_logger("jobs-analyse-4")
 
 # --------------------------
-# Funktionen
+# Konfiguration
 # --------------------------
-def extrahiere_entitaeten(text, debug=False):
-    gekuerzt = text[:500]
-    return list(set(ent.text for ent in nlp(gekuerzt).ents if ent.label_ != "")) if not debug else []
-
-def erkenne_technologien(text):
-    text_klein = text.lower()
-    return [tech for tech in TECH_STICHWÖRTER if tech in text_klein]
-
-def klassifiziere_textfeld(text, labels):
-    gekuerzt = text[:1000]
-    ergebnis = classifier(gekuerzt, labels, multi_label=True)
-    label = ergebnis["labels"][0]
-    score = ergebnis["scores"][0]
-    return label if score > 0.5 else "Unspecified"
+GRUPPENGROESSE = 20
 
 # --------------------------
-# Hauptfunktion
+# Hauptlogik
 # --------------------------
-def analysiere_anzeigen_in_losen(batch_size=100, debug=False):
-    alle = pd.read_csv(EINGABEDATEI)
-    alle = alle.dropna(subset=["beschreibung"])
-    alle["link"] = alle["link"].astype(str)
-    alle["beschreibung"] = alle["beschreibung"].astype(str)
+def vorbereiten_gruppierte_daten():
+    logger.info("jobs-analyse-4,START,Beginne Gruppierung der Daten")
+    
+    if not os.path.exists(EINGABEDATEI):
+        logger.error(f"jobs-analyse-4,ERROR,Datei nicht gefunden: {EINGABEDATEI}")
+        print(f"❌ Datei nicht gefunden: {EINGABEDATEI}")
+        sys.exit(1)
 
-    for spalte in ["titel", "firma", "ort", "beschreibung"]:
-        alle[spalte] = alle[spalte].astype(str).apply(clean_text)
+    df = pd.read_csv(EINGABEDATEI)
+    df = df.reset_index(drop=True)
+    df["grupo_id"] = df.index // GRUPPENGROESSE
+    num_gruppen = df["grupo_id"].nunique()
+    logger.info(f"jobs-analyse-4,INFO,Anzahl Gruppen: {num_gruppen}")
 
-    if os.path.exists(AUSGABEDATEI):
-        bereits = pd.read_csv(AUSGABEDATEI)
-        bearbeitet_links = set(bereits["link"].astype(str))
-        verbleibend = alle[~alle["link"].isin(bearbeitet_links)]
-    else:
-        verbleibend = alle
+    # JSON-Statusstruktur vorbereiten
+    status = {
+        f"grupo_{i}": {
+            "estado": "pendiente",
+            "num_filas": int((df["grupo_id"] == i).sum())
+        }
+        for i in range(num_gruppen)
+    }
 
-    print(f"🔍 Noch zu analysieren: {len(verbleibend)} Stellenangebote.")
+    df.to_csv(AUSGABEDATEI, index=False)
+    logger.info(f"jobs-analyse-4,SUCCESS,Daten gespeichert in {AUSGABEDATEI}")
 
-    for i in range(0, len(verbleibend), batch_size):
-        batch = verbleibend.iloc[i:i + batch_size].copy()
-        print(f"\n🧩 Bearbeite Batch {i // batch_size + 1} ({len(batch)} Angebote)...")
+    with open(STATUS_DATEI, "w", encoding="utf-8") as f:
+        json.dump(status, f, indent=4, ensure_ascii=False)
+    logger.info(f"jobs-analyse-4,SUCCESS,Statusdatei gespeichert in {STATUS_DATEI}")
 
-        rollen, stufen, branchen, technologien, entitaeten = [], [], [], [], []
-
-        for j, zeile in batch.iterrows():
-            text = zeile["beschreibung"]
-            print(f"\n[{j+1}/{len(alle)}] {zeile['titel']}")
-
-            t0 = time.time()
-            rolle = klassifiziere_textfeld(text, ROLLEN_LABELS)
-            stufe = klassifiziere_textfeld(text, STUFEN_LABELS)
-            branche = klassifiziere_textfeld(text, BRANCHEN_LABELS)
-            t1 = time.time()
-
-            print(f"⏱ NLP-Klassifikation abgeschlossen in {t1 - t0:.2f} Sekunden")
-
-            techs = erkenne_technologien(text)
-            ents = extrahiere_entitaeten(text, debug=debug)
-
-            rollen.append(rolle)
-            stufen.append(stufe)
-            branchen.append(branche)
-            technologien.append(techs)
-            entitaeten.append(ents)
-
-        batch["rolle"] = rollen
-        batch["stufe_nlp"] = stufen
-        batch["branche"] = branchen
-        batch["technologien"] = technologien
-        batch["entitaeten"] = entitaeten
-
-        header = not os.path.exists(AUSGABEDATEI)
-        batch.to_csv(AUSGABEDATEI, mode="a", header=header, index=False, encoding="utf-8")
-        print(f"✅ Batch gespeichert ({i + len(batch)} von {len(alle)})")
+    print(f"✅ {num_gruppen} Gruppen erstellt und gespeichert unter:\n→ {AUSGABEDATEI}")
+    print(f"📄 Gruppenstatus gespeichert in:\n→ {STATUS_DATEI}")
 
 # --------------------------
 # Direkter Aufruf
 # --------------------------
 if __name__ == "__main__":
-    debug = "--debug" in sys.argv
-    analysiere_anzeigen_in_losen(batch_size=100, debug=debug)
+    vorbereiten_gruppierte_daten()

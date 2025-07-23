@@ -21,7 +21,9 @@ AUSGABEDATEI = os.path.join(DATEN_VERZEICHNIS, "results.csv")
 
 # utils importieren
 sys.path.append(TEST_VERZEICHNIS)
-from utils import clean_text
+from utils import clean_text, get_logger
+
+logger = get_logger("jobs-analyse-3")
 
 # --------------------------
 # Browser initialisieren
@@ -65,6 +67,7 @@ def extrahiere_stellenbeschreibung(browser, url):
         }
 
     except Exception as e:
+        logger.error(f"jobs-analyse-3,ERROR,Fehler beim Extrahieren der URL {url}: {e}")
         print(f"❌ Fehler beim Extrahieren der URL {url}: {e}")
         return None
 
@@ -72,13 +75,13 @@ def extrahiere_stellenbeschreibung(browser, url):
 # Hauptfunktion
 # --------------------------
 def verarbeite_stellenangebote(debug=False):
+    logger.info("jobs-analyse-3,START,Beginne Verarbeitung der Stellenangebote")
     daten = pd.read_csv(EINGABEDATEI)
     daten = daten.dropna(subset=["link"])
     daten["link"] = daten["link"].str.strip()
     daten["link"] = daten["link"].str.replace("https://www.jobs.chhttps://www.jobs.ch", "https://www.jobs.ch")
 
-    spalten = ["titel", "firma", "ort", "vertragsart", "stufe", "link"]
-    for spalte in spalten:
+    for spalte in daten.columns:
         daten[spalte] = daten[spalte].astype(str).apply(clean_text)
 
     if debug:
@@ -95,55 +98,54 @@ def verarbeite_stellenangebote(debug=False):
         for i, zeile in daten.iterrows():
             url = zeile["link"]
             print(f"\n[{i+1}/{gesamt}] Verarbeite URL:\n{url}")
+            logger.info(f"jobs-analyse-3,INFO,Verarbeite URL {i+1}/{gesamt}: {url}")
 
             t0 = time.time()
             details = extrahiere_stellenbeschreibung(browser, url)
             dauer = time.time() - t0
 
             if details:
-                job_text = details.get("beschreibung", "")
-                pub_date = details.get("publikationsdatum", "")
-                pensum = details.get("pensum", "")
-                vertragsart_detail = details.get("vertragsart_detail", "")
-                sprache = details.get("sprache", "")
-                arbeitsort = details.get("arbeitsort", "")
+                eintrag = zeile.to_dict()
+                eintrag.update({
+                    "publikationsdatum": details.get("publikationsdatum", ""),
+                    "pensum": details.get("pensum", ""),
+                    "vertragsart_detail": details.get("vertragsart_detail", ""),
+                    "sprache": details.get("sprache", ""),
+                    "arbeitsort": details.get("arbeitsort", ""),
+                    "beschreibung": details.get("beschreibung", "")
+                })
                 print(f"✅ Erfolgreich extrahiert in {dauer:.2f} Sekunden")
+                logger.info(f"jobs-analyse-3,SUCCESS,Extraktion erfolgreich ({dauer:.2f}s)")
             else:
-                job_text = pub_date = pensum = vertragsart_detail = sprache = arbeitsort = ""
+                eintrag = zeile.to_dict()
+                eintrag.update({
+                    "publikationsdatum": "",
+                    "pensum": "",
+                    "vertragsart_detail": "",
+                    "sprache": "",
+                    "arbeitsort": "",
+                    "beschreibung": ""
+                })
                 fehler += 1
                 print(f"❌ Fehler beim Extrahieren ({fehler} insgesamt)")
+                logger.warning(f"jobs-analyse-3,WARN,Fehler beim Extrahieren (insgesamt {fehler})")
 
             vergangen = time.time() - start_time
             durchschnitt = vergangen / (i + 1)
             verbleibend = durchschnitt * (gesamt - i - 1)
             eta = datetime.timedelta(seconds=int(verbleibend))
             print(f"⏱ Geschätzte verbleibende Zeit: {eta}")
+            logger.info(f"jobs-analyse-3,INFO,ETA: {eta}")
 
-            ergebnisse.append({
-                "titel": zeile["titel"],
-                "firma": zeile["firma"],
-                "ort": zeile["ort"],
-                "vertragsart": zeile.get("vertragsart", ""),
-                "stufe": zeile.get("stufe", ""),
-                "link": url,
-                "publikationsdatum": pub_date,
-                "pensum": pensum,
-                "vertragsart_detail": vertragsart_detail,
-                "sprache": sprache,
-                "arbeitsort": arbeitsort,
-                "beschreibung": job_text
-            })
+            ergebnisse.append(eintrag)
 
     finally:
         browser.quit()
+        logger.info("jobs-analyse-3,INFO,Browser geschlossen")
 
     df_resultat = pd.DataFrame(ergebnisse)
     df_resultat.to_csv(AUSGABEDATEI, index=False, encoding="utf-8")
     print(f"\n✅ Fertig. {len(df_resultat)} Einträge gespeichert in '{AUSGABEDATEI}'")
     print(f"⚠️ Fehler insgesamt: {fehler}")
-
-# --------------------------
-# Direkter Aufruf
-# --------------------------
-if __name__ == "__main__":
-    verarbeite_stellenangebote(debug=False)
+    logger.info(f"jobs-analyse-3,SUCCESS,{len(df_resultat)} Einträge gespeichert in {AUSGABEDATEI}")
+    logger.warning(f"jobs-analyse-3,INFO,Fehler insgesamt: {fehler}")
