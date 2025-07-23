@@ -1,71 +1,93 @@
+import os
+import sys
+import time
+import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+
+# --------------------------
+# Pfadkonfiguration
+# --------------------------
+BASIS_VERZEICHNIS = os.path.dirname(os.path.abspath(__file__))
+TEST_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "test"))
+DATEN_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "data"))
+CHROMEDRIVER_PFAD = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "bin", "chromedriver.exe"))
+AUSGABEDATEI = os.path.join(DATEN_VERZEICHNIS, "jobs_scraped.csv")
+
+# Sicherstellen, dass 'test' im sys.path enthalten ist, um utils zu importieren
+sys.path.append(TEST_VERZEICHNIS)
 from utils import clean_text
-import pandas as pd
-import time
 
-def setup_driver():
-    options = Options()
-    options.add_argument("--headless")  # elimina ventana gráfica
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    service = Service(executable_path="D:/jobs/chromedriver.exe")
-    return webdriver.Chrome(service=service, options=options)
+# --------------------------
+# Initialisierung des Browsers
+# --------------------------
+def browser_einrichten():
+    optionen = Options()
+    optionen.add_argument("--headless")
+    optionen.add_argument("--disable-gpu")
+    optionen.add_argument("--window-size=1920,1080")
+    dienst = Service(executable_path=CHROMEDRIVER_PFAD)
+    return webdriver.Chrome(service=dienst, options=optionen)
 
-def get_jobs_basic(driver, max_pages=100):
-    base_url = "https://www.jobs.ch/en/vacancies/?page={page}&region=7&term="
-    results = []
+# --------------------------
+# Grundlegendes Scraping der Stellenangebote
+# --------------------------
+def jobs_abrufen(browser, max_seiten=100):
+    basis_url = "https://www.jobs.ch/en/vacancies/?page={page}&region=21&term="
+    ergebnisse = []
 
-    for page in range(1, max_pages + 1):
-        url = base_url.format(page=page)
-        print(f"\nCargando página {page} → {url}")
-        driver.get(url)
+    for seite in range(1, max_seiten + 1):
+        url = basis_url.format(page=seite)
+        print(f"\nLade Seite {seite} → {url}")
+        browser.get(url)
         time.sleep(2.5)
 
-        offers = driver.find_elements(By.CSS_SELECTOR, "a[data-cy='job-link']")
-        print(f"→ {len(offers)} ofertas detectadas")
+        angebote = browser.find_elements(By.CSS_SELECTOR, "a[data-cy='job-link']")
+        print(f"→ {len(angebote)} Stellenangebote gefunden")
 
-        for offer in offers:
+        for angebot in angebote:
             try:
-                title = offer.get_attribute("title").strip()
-                href = offer.get_attribute("href").strip()
+                titel = angebot.get_attribute("title").strip()
+                href = angebot.get_attribute("href").strip()
                 link = href if href.startswith("http") else "https://www.jobs.ch" + href
             except:
-                title = link = ""
+                titel = link = ""
 
             try:
-                ps = offer.find_elements(By.CSS_SELECTOR, "p.textStyle_p2")
-                location = company = ""
-
-                for p in ps:
-                    if p.find_elements(By.TAG_NAME, "strong"):
-                        company = p.text.strip()
+                absätze = angebot.find_elements(By.CSS_SELECTOR, "p.textStyle_p2")
+                ort = firma = ""
+                for absatz in absätze:
+                    if absatz.find_elements(By.TAG_NAME, "strong"):
+                        firma = absatz.text.strip()
                     else:
-                        location = p.text.strip()
+                        ort = absatz.text.strip()
             except:
-                location = company = ""
+                ort = firma = ""
 
-            results.append({
-                "title": title,
-                "company": company,
-                "location": location,
+            ergebnisse.append({
+                "titel": titel,
+                "firma": firma,
+                "ort": ort,
                 "link": link
             })
 
-        print(f"→ Acumuladas: {len(results)} ofertas")
+        print(f"→ Insgesamt gesammelt: {len(ergebnisse)} Angebote")
 
-    return results
+    return ergebnisse
 
+# --------------------------
+# Hauptprogramm
+# --------------------------
 if __name__ == "__main__":
-    driver = setup_driver()
+    browser = browser_einrichten()
     try:
-        jobs = get_jobs_basic(driver, max_pages=100)
+        jobs = jobs_abrufen(browser, max_seiten=100)
         df = pd.DataFrame(jobs)
-        for col in ["title", "company", "location", "link"]:
-            df[col] = df[col].apply(clean_text)
-        df.to_csv("jobs_scraped.csv", index=False, encoding="utf-8")
-        print(f"\n Guardado: {len(df)} ofertas en 'jobs_scraped.csv'")
+        for spalte in ["titel", "firma", "ort", "link"]:
+            df[spalte] = df[spalte].apply(clean_text)
+        df.to_csv(AUSGABEDATEI, index=False, encoding="utf-8")
+        print(f"\n✅ Gespeichert: {len(df)} Stellenangebote in '{AUSGABEDATEI}'")
     finally:
-        driver.quit()
+        browser.quit()

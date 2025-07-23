@@ -29,7 +29,7 @@ Das Projekt führt einen mehrstufigen Scraping- und Analyseprozess durch:
 ├── README.md
 ├── LICENSE
 ├── .gitignore
-├── estructura.txt
+├── verzeichnisstruktur.txtgit rm estructura.txt
 ├── bin/
 │   └── chromedriver.exe
 ├── data/

@@ -1,10 +1,26 @@
+import os
+import sys
+import time
 import pandas as pd
-from utils import clean_text
 import spacy
 from transformers import pipeline
-import time
 
-print("🔄 Cargando modelos NLP...")
+# --------------------------
+# Pfadkonfiguration
+# --------------------------
+BASIS_VERZEICHNIS = os.path.dirname(os.path.abspath(__file__))
+TEST_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "test"))
+DATEN_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "data"))
+EINGABEDATEI = os.path.join(DATEN_VERZEICHNIS, "results.csv")
+AUSGABEDATEI = os.path.join(DATEN_VERZEICHNIS, "analyzed_offers_optimized.csv")
+
+sys.path.append(TEST_VERZEICHNIS)
+from utils import clean_text
+
+# --------------------------
+# NLP-Modelle laden
+# --------------------------
+print("🔄 Lade NLP-Modelle...")
 classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
 
 try:
@@ -14,73 +30,92 @@ except:
     download("xx_ent_wiki_sm")
     nlp = spacy.load("xx_ent_wiki_sm")
 
-ROLE_LABELS = ["Data Scientist", "Data Analyst", "Machine Learning Engineer", "Software Engineer",
-               "Business Analyst", "DevOps Engineer", "BI Analyst", "Data Engineer"]
-SENIORITY_LABELS = ["Intern", "Junior", "Senior", "Lead", "Unspecified"]
-INDUSTRY_LABELS = ["Finance", "Healthcare", "Retail", "Telecommunications", "IT", "Education", "Government"]
-TECH_KEYWORDS = ["python", "sql", "excel", "r", "tableau", "power bi", "cloud", "aws", "azure", "linux",
-                 "pytorch", "tensorflow", "spark", "hadoop", "snowflake", "looker"]
+ROLLEN_LABELS = ["Data Scientist", "Data Analyst", "Machine Learning Engineer", "Software Engineer",
+                 "Business Analyst", "DevOps Engineer", "BI Analyst", "Data Engineer"]
+STUFEN_LABELS = ["Intern", "Junior", "Senior", "Lead", "Unspecified"]
+BRANCHEN_LABELS = ["Finance", "Healthcare", "Retail", "Telecommunications", "IT", "Education", "Government"]
+TECH_STICHWÖRTER = ["python", "sql", "excel", "r", "tableau", "power bi", "cloud", "aws", "azure", "linux",
+                    "pytorch", "tensorflow", "spark", "hadoop", "snowflake", "looker"]
 
-def extract_entities_spacy(text, debug=False):
-    trimmed = text[:500]
-    return list(set(ent.text for ent in nlp(trimmed).ents if ent.label_ != "")) if not debug else []
+# --------------------------
+# Funktionen
+# --------------------------
+def extrahiere_entitaeten(text, debug=False):
+    gekuerzt = text[:500]
+    return list(set(ent.text for ent in nlp(gekuerzt).ents if ent.label_ != "")) if not debug else []
 
-def detect_technologies(text):
-    text_lower = text.lower()
-    return [tech for tech in TECH_KEYWORDS if tech in text_lower]
+def erkenne_technologien(text):
+    text_klein = text.lower()
+    return [tech for tech in TECH_STICHWÖRTER if tech in text_klein]
 
-def classify_field(text, labels):
-    trimmed = text[:1000]
-    result = classifier(trimmed, labels, multi_label=True)
-    top_label = result["labels"][0]
-    score = result["scores"][0]
-    return top_label if score > 0.5 else "Unspecified"
+def klassifiziere_textfeld(text, labels):
+    gekuerzt = text[:1000]
+    ergebnis = classifier(gekuerzt, labels, multi_label=True)
+    label = ergebnis["labels"][0]
+    score = ergebnis["scores"][0]
+    return label if score > 0.5 else "Unspecified"
 
-def analyze_offers(input_csv, output_csv, max_offers=0, debug=False):
-    df = pd.read_csv(input_csv)
-    df = df.dropna(subset=["job_text"])
-    if max_offers > 0:
-        df = df.head(max_offers)
+# --------------------------
+# Hauptfunktion
+# --------------------------
+def analysiere_anzeigen_in_losen(batch_size=100, debug=False):
+    alle = pd.read_csv(EINGABEDATEI)
+    alle = alle.dropna(subset=["beschreibung"])
+    alle["link"] = alle["link"].astype(str)
+    alle["beschreibung"] = alle["beschreibung"].astype(str)
 
-    print(f"🔍 Procesando {len(df)} ofertas...")
+    for spalte in ["titel", "firma", "ort", "beschreibung"]:
+        alle[spalte] = alle[spalte].astype(str).apply(clean_text)
 
-    for col in ["title", "company", "location", "job_text"]:
-        df[col] = df[col].astype(str).apply(clean_text)
+    if os.path.exists(AUSGABEDATEI):
+        bereits = pd.read_csv(AUSGABEDATEI)
+        bearbeitet_links = set(bereits["link"].astype(str))
+        verbleibend = alle[~alle["link"].isin(bearbeitet_links)]
+    else:
+        verbleibend = alle
 
-    roles, seniorities, industries, techs, ents = [], [], [], [], []
+    print(f"🔍 Noch zu analysieren: {len(verbleibend)} Stellenangebote.")
 
-    for i, row in df.iterrows():
-        text = row["job_text"]
-        print(f"\n[{i+1}/{len(df)}] Analizando...")
+    for i in range(0, len(verbleibend), batch_size):
+        batch = verbleibend.iloc[i:i + batch_size].copy()
+        print(f"\n🧩 Bearbeite Batch {i // batch_size + 1} ({len(batch)} Angebote)...")
 
-        t0 = time.time()
-        role = classify_field(text, ROLE_LABELS)
-        seniority = classify_field(text, SENIORITY_LABELS)
-        industry = classify_field(text, INDUSTRY_LABELS)
-        t1 = time.time()
+        rollen, stufen, branchen, technologien, entitaeten = [], [], [], [], []
 
-        print(f"⏱ Clasificación NLP completada en {t1 - t0:.2f} s")
+        for j, zeile in batch.iterrows():
+            text = zeile["beschreibung"]
+            print(f"\n[{j+1}/{len(alle)}] {zeile['titel']}")
 
-        technologies = detect_technologies(text)
-        entities = extract_entities_spacy(text, debug=debug)
+            t0 = time.time()
+            rolle = klassifiziere_textfeld(text, ROLLEN_LABELS)
+            stufe = klassifiziere_textfeld(text, STUFEN_LABELS)
+            branche = klassifiziere_textfeld(text, BRANCHEN_LABELS)
+            t1 = time.time()
 
-        roles.append(role)
-        seniorities.append(seniority)
-        industries.append(industry)
-        techs.append(technologies)
-        ents.append(entities)
+            print(f"⏱ NLP-Klassifikation abgeschlossen in {t1 - t0:.2f} Sekunden")
 
-    df["role"] = roles
-    df["seniority"] = seniorities
-    df["industry"] = industries
-    df["tech_keywords"] = techs
-    df["entities"] = ents
+            techs = erkenne_technologien(text)
+            ents = extrahiere_entitaeten(text, debug=debug)
 
-    df.to_csv(output_csv, index=False, encoding="utf-8")
-    print(f"✅ Análisis completo. Guardado en: {output_csv}")
+            rollen.append(rolle)
+            stufen.append(stufe)
+            branchen.append(branche)
+            technologien.append(techs)
+            entitaeten.append(ents)
 
+        batch["rolle"] = rollen
+        batch["stufe_nlp"] = stufen
+        batch["branche"] = branchen
+        batch["technologien"] = technologien
+        batch["entitaeten"] = entitaeten
+
+        header = not os.path.exists(AUSGABEDATEI)
+        batch.to_csv(AUSGABEDATEI, mode="a", header=header, index=False, encoding="utf-8")
+        print(f"✅ Batch gespeichert ({i + len(batch)} von {len(alle)})")
+
+# --------------------------
+# Direkter Aufruf
+# --------------------------
 if __name__ == "__main__":
-    import sys
-    max_offers = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     debug = "--debug" in sys.argv
-    analyze_offers("results.csv", "analyzed_offers_optimized.csv", max_offers=max_offers, debug=debug)
+    analysiere_anzeigen_in_losen(batch_size=100, debug=debug)

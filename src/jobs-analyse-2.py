@@ -1,48 +1,64 @@
+import os
+import sys
 import pandas as pd
+
+# Pfadkonfiguration für utils
+BASIS_VERZEICHNIS = os.path.dirname(os.path.abspath(__file__))
+TEST_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "test"))
+sys.path.append(TEST_VERZEICHNIS)
 from utils import clean_text
 
-# Parámetros configurables
-LEVEL_KEYWORDS = ["praktikum", "intern", "junior", "senior"]
-EXCLUDE_TITLES = ["ceo", "chief executive", "geschäftsführer", "director", "teamleitung", "leiter/in", "head of"]
-EXCLUDE_KEYWORDS = ["reinigung", "verkauf", "stapler", "pflege"]
-INCLUDE_TECH_KEYWORDS = ["python", "sql", "sap", "excel", "r", "tableau", "power bi", "cloud", "aws", "azure", "linux"]
+# -----------------------------
+# Konfigurierbare Schlüsselwörter
+# -----------------------------
+LEVEL_STICHWÖRTER = ["praktikum", "intern", "junior", "senior"]
+AUSSCHLUSS_TITEL = ["ceo", "chief executive", "geschäftsführer", "director", "teamleitung", "leiter/in", "head of"]
+AUSSCHLUSS_STICHWÖRTER = ["reinigung", "verkauf", "stapler", "pflege"]
+TECH_STICHWÖRTER = ["python", "sql", "sap", "excel", "r", "tableau", "power bi", "cloud", "aws", "azure", "linux"]
 
-def classify_job_titles(df):
+# -----------------------------
+# Klassifikation der Jobtitel
+# -----------------------------
+def klassifiziere_jobtitel(df):
     df = df.copy()
-    df["title_lower"] = df["title"].str.lower()
+    df["titel_klein"] = df["titel"].str.lower()
 
-    # Flags
-    df["is_excluded"] = df["title_lower"].apply(lambda x: any(kw in x for kw in EXCLUDE_TITLES + EXCLUDE_KEYWORDS))
-    df["has_tech_keyword"] = df["title_lower"].apply(lambda x: any(kw in x for kw in INCLUDE_TECH_KEYWORDS))
-    df["level"] = df["title_lower"].apply(lambda x: next((lvl for lvl in LEVEL_KEYWORDS if lvl in x), "unspecified"))
+    # Flags setzen
+    df["ausgeschlossen"] = df["titel_klein"].apply(lambda x: any(kw in x for kw in AUSSCHLUSS_TITEL + AUSSCHLUSS_STICHWÖRTER))
+    df["hat_tech"] = df["titel_klein"].apply(lambda x: any(kw in x for kw in TECH_STICHWÖRTER))
+    df["stufe"] = df["titel_klein"].apply(lambda x: next((lvl for lvl in LEVEL_STICHWÖRTER if lvl in x), "nicht_zugewiesen"))
 
-    # Clasificación tipo de contrato
-    def classify_contract(loc):
-        if isinstance(loc, str):
-            loc_lower = loc.lower()
-            if "intern" in loc_lower or "praktikum" in loc_lower:
-                return "internship"
-            elif "unlimited" in loc_lower or "unbefristet" in loc_lower:
-                return "permanent"
-            elif "temporary" in loc_lower or "befristet" in loc_lower:
-                return "temporary"
-            elif "year" in loc_lower or "chf" in loc_lower:
-                return "with_salary_info"
-        return "unspecified"
+    # Vertragsart klassifizieren
+    def klassifiziere_vertrag(ort):
+        if isinstance(ort, str):
+            ort_klein = ort.lower()
+            if "intern" in ort_klein or "praktikum" in ort_klein:
+                return "praktikum"
+            elif "unlimited" in ort_klein or "unbefristet" in ort_klein:
+                return "unbefristet"
+            elif "temporary" in ort_klein or "befristet" in ort_klein:
+                return "befristet"
+            elif "year" in ort_klein or "chf" in ort_klein:
+                return "mit_gehaltsangabe"
+        return "nicht_zugewiesen"
 
-    df["contract_type"] = df["location"].apply(classify_contract)
+    df["vertragsart"] = df["ort"].apply(klassifiziere_vertrag)
 
-    # Filtro final recomendado como flag
-    df["is_relevant"] = (~df["is_excluded"]) & (df["level"] != "unspecified") & (df["has_tech_keyword"])
+    # Relevanzflag setzen
+    df["relevant"] = (~df["ausgeschlossen"]) & (df["stufe"] != "nicht_zugewiesen") & (df["hat_tech"])
 
     return df
 
-# Leer y limpiar
-df = pd.read_csv("jobs_scraped.csv")
-for col in ["title", "company", "location", "link"]:
-    df[col] = df[col].astype(str).apply(clean_text)
+# -----------------------------
+# Hauptlogik: Einlesen, Reinigen, Klassifizieren
+# -----------------------------
+EINGABEDATEI = os.path.join(BASIS_VERZEICHNIS, "..", "data", "jobs_scraped.csv")
+AUSGABEDATEI = os.path.join(BASIS_VERZEICHNIS, "..", "data", "output_2.csv")
 
-# Clasificar y exportar con todas las filas conservadas
-classified_df = classify_job_titles(df)
-classified_df.to_csv("output_2.csv", index=False, encoding="utf-8")
-print("✅ Guardado: output_2.csv con todas las ofertas y campos de filtro.")
+daten = pd.read_csv(EINGABEDATEI)
+for spalte in ["titel", "firma", "ort", "link"]:
+    daten[spalte] = daten[spalte].astype(str).apply(clean_text)
+
+klassifiziert = klassifiziere_jobtitel(daten)
+klassifiziert.to_csv(AUSGABEDATEI, index=False, encoding="utf-8")
+print(f"✅ Gespeichert: {AUSGABEDATEI} mit allen Angeboten und Filterfeldern.")

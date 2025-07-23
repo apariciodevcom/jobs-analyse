@@ -1,127 +1,149 @@
-import pandas as pd
+import os
+import sys
 import time
 import random
 import datetime
+import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
+
+# --------------------------
+# Pfadkonfiguration
+# --------------------------
+BASIS_VERZEICHNIS = os.path.dirname(os.path.abspath(__file__))
+TEST_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "test"))
+DATEN_VERZEICHNIS = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "data"))
+CHROMEDRIVER_PFAD = os.path.abspath(os.path.join(BASIS_VERZEICHNIS, "..", "bin", "chromedriver.exe"))
+EINGABEDATEI = os.path.join(DATEN_VERZEICHNIS, "output_2.csv")
+AUSGABEDATEI = os.path.join(DATEN_VERZEICHNIS, "results.csv")
+
+# utils importieren
+sys.path.append(TEST_VERZEICHNIS)
 from utils import clean_text
 
-# Configuración del navegador
-def setup_driver():
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    service = Service(executable_path="D:/jobs/chromedriver.exe")  # Ajusta si cambias ubicación
-    return webdriver.Chrome(service=service, options=options)
+# --------------------------
+# Browser initialisieren
+# --------------------------
+def browser_einrichten():
+    optionen = Options()
+    optionen.add_argument("--headless")
+    optionen.add_argument("--disable-gpu")
+    optionen.add_argument("--window-size=1920,1080")
+    dienst = Service(executable_path=CHROMEDRIVER_PFAD)
+    return webdriver.Chrome(service=dienst, options=optionen)
 
-# Función para extraer los datos de la oferta
-def extract_job_text(driver, url):
+# --------------------------
+# Detaildaten pro Stelle extrahieren
+# --------------------------
+def extrahiere_stellenbeschreibung(browser, url):
     try:
-        driver.get(url)
+        browser.get(url)
         time.sleep(random.uniform(2.0, 3.5))
 
-        def safe_extract(by, selector):
+        def sicher_lesen(by, selector):
             try:
-                return driver.find_element(by, selector).text.strip()
+                return browser.find_element(by, selector).text.strip()
             except:
                 return ""
 
-        description = clean_text(safe_extract(By.CSS_SELECTOR, 'div[data-cy="vacancy-description"]'))
-        publication_date = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-publication'] span.white-space_nowrap"))
-        workload = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-workload'] span.white-space_nowrap"))
-        contract_type_detail = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-contract'] span.white-space_nowrap"))
-        language = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-language'] span:not([class])"))
-        place_of_work = clean_text(safe_extract(By.CSS_SELECTOR, "li[data-cy='info-workplace'] span:not([class])"))
+        beschreibung = clean_text(sicher_lesen(By.CSS_SELECTOR, 'div[data-cy="vacancy-description"]'))
+        publikationsdatum = clean_text(sicher_lesen(By.CSS_SELECTOR, "li[data-cy='info-publication'] span.white-space_nowrap"))
+        pensum = clean_text(sicher_lesen(By.CSS_SELECTOR, "li[data-cy='info-workload'] span.white-space_nowrap"))
+        vertragsart_detail = clean_text(sicher_lesen(By.CSS_SELECTOR, "li[data-cy='info-contract'] span.white-space_nowrap"))
+        sprache = clean_text(sicher_lesen(By.CSS_SELECTOR, "li[data-cy='info-language'] span:not([class])"))
+        arbeitsort = clean_text(sicher_lesen(By.CSS_SELECTOR, "li[data-cy='info-workplace'] span:not([class])"))
 
         return {
-            "description": description,
-            "publication_date": publication_date,
-            "workload": workload,
-            "contract_type_detail": contract_type_detail,
-            "language": language,
-            "place_of_work": place_of_work
+            "beschreibung": beschreibung,
+            "publikationsdatum": publikationsdatum,
+            "pensum": pensum,
+            "vertragsart_detail": vertragsart_detail,
+            "sprache": sprache,
+            "arbeitsort": arbeitsort
         }
 
     except Exception as e:
-        print(f"❌ Error al extraer contenido de {url}:{e}")
+        print(f"❌ Fehler beim Extrahieren der URL {url}: {e}")
         return None
 
-# Función principal
-def scrape_job_details(input_csv, output_csv, debug=False):
-    df = pd.read_csv(input_csv)
-    df = df.dropna(subset=["link"])
-    df["link"] = df["link"].str.strip()
-    df["link"] = df["link"].str.replace("https://www.jobs.chhttps://www.jobs.ch", "https://www.jobs.ch")
+# --------------------------
+# Hauptfunktion
+# --------------------------
+def verarbeite_stellenangebote(debug=False):
+    daten = pd.read_csv(EINGABEDATEI)
+    daten = daten.dropna(subset=["link"])
+    daten["link"] = daten["link"].str.strip()
+    daten["link"] = daten["link"].str.replace("https://www.jobs.chhttps://www.jobs.ch", "https://www.jobs.ch")
 
-    # Limpieza de columnas de texto
-    text_cols = ["title", "company", "location", "contract_type", "level", "link"]
-    for col in text_cols:
-        df[col] = df[col].astype(str).apply(clean_text)
+    spalten = ["titel", "firma", "ort", "vertragsart", "stufe", "link"]
+    for spalte in spalten:
+        daten[spalte] = daten[spalte].astype(str).apply(clean_text)
 
     if debug:
-        df = df.head(1)
+        daten = daten.head(1)
 
-    driver = setup_driver()
-    results = []
+    browser = browser_einrichten()
+    ergebnisse = []
 
     start_time = time.time()
-    total = len(df)
-    errores = 0
+    gesamt = len(daten)
+    fehler = 0
 
     try:
-        for i, row in df.iterrows():
-            url = row["link"]
-            print(f"\n[{i+1}/{total}] Procesando URL:\n{url}")
+        for i, zeile in daten.iterrows():
+            url = zeile["link"]
+            print(f"\n[{i+1}/{gesamt}] Verarbeite URL:\n{url}")
 
-            iter_start = time.time()
-            data = extract_job_text(driver, url)
-            iter_time = time.time() - iter_start
+            t0 = time.time()
+            details = extrahiere_stellenbeschreibung(browser, url)
+            dauer = time.time() - t0
 
-            if data:
-                job_text = data.get("description", "")
-                pub_date = data.get("publication_date", "")
-                workload = data.get("workload", "")
-                contract_type_detail = data.get("contract_type_detail", "")
-                language = data.get("language", "")
-                place_of_work = data.get("place_of_work", "")
-                print(f"✅ Datos extraídos correctamente en {iter_time:.2f} seg")
+            if details:
+                job_text = details.get("beschreibung", "")
+                pub_date = details.get("publikationsdatum", "")
+                pensum = details.get("pensum", "")
+                vertragsart_detail = details.get("vertragsart_detail", "")
+                sprache = details.get("sprache", "")
+                arbeitsort = details.get("arbeitsort", "")
+                print(f"✅ Erfolgreich extrahiert in {dauer:.2f} Sekunden")
             else:
-                job_text = pub_date = workload = contract_type_detail = language = place_of_work = ""
-                errores += 1
-                print(f"❌ Error al extraer texto (Errores acumulados: {errores})")
+                job_text = pub_date = pensum = vertragsart_detail = sprache = arbeitsort = ""
+                fehler += 1
+                print(f"❌ Fehler beim Extrahieren ({fehler} insgesamt)")
 
-            elapsed = time.time() - start_time
-            avg_time = elapsed / (i + 1)
-            remaining = avg_time * (total - i - 1)
-            eta = datetime.timedelta(seconds=int(remaining))
-            print(f"⏱ Tiempo estimado restante: {eta}")
+            vergangen = time.time() - start_time
+            durchschnitt = vergangen / (i + 1)
+            verbleibend = durchschnitt * (gesamt - i - 1)
+            eta = datetime.timedelta(seconds=int(verbleibend))
+            print(f"⏱ Geschätzte verbleibende Zeit: {eta}")
 
-            results.append({
-                "title": row["title"],
-                "company": row["company"],
-                "location": row["location"],
-                "contract_type": row.get("contract_type", ""),
-                "level": row.get("level", ""),
+            ergebnisse.append({
+                "titel": zeile["titel"],
+                "firma": zeile["firma"],
+                "ort": zeile["ort"],
+                "vertragsart": zeile.get("vertragsart", ""),
+                "stufe": zeile.get("stufe", ""),
                 "link": url,
-                "publication_date": pub_date,
-                "workload": workload,
-                "contract_type_detail": contract_type_detail,
-                "language": language,
-                "place_of_work": place_of_work,
-                "job_text": job_text
+                "publikationsdatum": pub_date,
+                "pensum": pensum,
+                "vertragsart_detail": vertragsart_detail,
+                "sprache": sprache,
+                "arbeitsort": arbeitsort,
+                "beschreibung": job_text
             })
 
     finally:
-        driver.quit()
+        browser.quit()
 
-    output_df = pd.DataFrame(results)
-    output_df.to_csv(output_csv, index=False, encoding="utf-8")
-    print(f"\n✅ Proceso finalizado: {len(output_df)} filas guardadas en '{output_csv}'")
-    print(f"⚠️ Total de errores: {errores}")
+    df_resultat = pd.DataFrame(ergebnisse)
+    df_resultat.to_csv(AUSGABEDATEI, index=False, encoding="utf-8")
+    print(f"\n✅ Fertig. {len(df_resultat)} Einträge gespeichert in '{AUSGABEDATEI}'")
+    print(f"⚠️ Fehler insgesamt: {fehler}")
 
-# Ejecutar directamente
+# --------------------------
+# Direkter Aufruf
+# --------------------------
 if __name__ == "__main__":
-    scrape_job_details("output_2.csv", "results.csv", debug=False)
+    verarbeite_stellenangebote(debug=False)
