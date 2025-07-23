@@ -1,0 +1,6 @@
+pandas
+selenium
+spacy
+transformers
+sentence-transformers
+scikit-learn
